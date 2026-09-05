@@ -1,0 +1,22 @@
+{
+  "uuid": "2f9a7c41-5e3b-4d88-a6c2-7b1e0d5f4a33",
+  "shortName": "Alta Doors",
+  "longName": "Alta Doors",
+  "companyName": "open-pebble",
+  "versionLabel": "1.0",
+  "versionCode": 1,
+  "displayName": "Alta Doors",
+  "watchapp": {
+    "watchface": false,
+    "hiddenApp": false
+  },
+  "appKeys": {},
+  "capabilities": [],
+  "targetPlatforms": [
+    "emery"
+  ],
+  "sdkVersion": "3",
+  "resources": {
+    "media": []
+  }
+}
