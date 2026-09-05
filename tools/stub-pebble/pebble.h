@@ -41,10 +41,14 @@ typedef struct {
 } Tuple;
 
 typedef union TupleValue {
+  uint8_t uint8;
+  uint16_t uint16;
+  uint32_t uint32;
+  int8_t int8;
+  int16_t int16;
+  int32_t int32;
   uint8_t *bytes;
   char *cstring;
-  struct { uint32_t uint32; uint16_t uint16; uint8_t uint8; } uint32;
-  struct { int32_t int32; int16_t int16; int8_t int8; } int32;
 } TupleValue;
 
 void *dict_write_cstring(DictionaryIterator *iterator, const uint32_t key, const char *cstring);
@@ -60,10 +64,11 @@ typedef void (*AppMessageOutboxSent)(DictionaryIterator *iter, void *context);
 typedef void (*AppMessageOutboxFailed)(DictionaryIterator *iter, AppMessageResult reason, void *context);
 
 void app_message_open(const uint32_t inbox_size, const uint32_t outbox_size);
-void app_message_register_inbox_received(AppMessageInboxReceived callback, void *context);
-void app_message_register_inbox_dropped(AppMessageInboxDropped callback, void *context);
-void app_message_register_outbox_sent(AppMessageOutboxSent callback, void *context);
-void app_message_register_outbox_failed(AppMessageOutboxFailed callback, void *context);
+void *app_message_set_context(void *context);
+AppMessageInboxReceived app_message_register_inbox_received(AppMessageInboxReceived callback);
+AppMessageInboxDropped app_message_register_inbox_dropped(AppMessageInboxDropped callback);
+AppMessageOutboxSent app_message_register_outbox_sent(AppMessageOutboxSent callback);
+AppMessageOutboxFailed app_message_register_outbox_failed(AppMessageOutboxFailed callback);
 AppMessageResult app_message_outbox_begin(DictionaryIterator **iterator);
 AppMessageResult app_message_outbox_send(void);
 uint32_t app_message_inbox_size_maximum(void);
@@ -81,11 +86,18 @@ void persist_delete(const uint32_t key);
 
 // --- graphics ---------------------------------------------------------------
 
-typedef struct { int16_t x, y, w, h; } GRect;
+typedef struct { int16_t x, y; } GPoint;
+typedef struct { int16_t w, h; } GSize;
+typedef struct { GPoint origin; GSize size; } GRect;
 typedef uint8_t GColor;
 
 typedef enum { GTextAlignmentLeft, GTextAlignmentCenter, GTextAlignmentRight } GTextAlignment;
 
+// Matches the real SDK's function-like macro (positional init avoids the
+// designator/macro-parameter collision).
+#define GRect(x, y, w, h) ((GRect){{(x), (y)}, {(w), (h)}})
+
+typedef struct GIcon GIcon;
 typedef struct Layer Layer;
 typedef struct GContext GContext;
 typedef struct TextLayer TextLayer;
@@ -100,7 +112,7 @@ typedef struct MenuLayer MenuLayer;
 void layer_add_child(Layer *parent, Layer *child);
 GRect layer_get_bounds(const Layer *layer);
 
-typedef struct GFont GFont;
+typedef void *GFont;
 #define FONT_KEY_GOTHIC_14 "gothic_14"
 #define FONT_KEY_GOTHIC_18 "gothic_18"
 #define FONT_KEY_GOTHIC_24_BOLD "gothic_24_bold"
@@ -138,6 +150,8 @@ typedef struct AppTimer AppTimer;
 AppTimer *app_timer_register(uint32_t timeout_ms, void (*callback)(void *), void *data);
 void app_timer_cancel(AppTimer *timer);
 
+void app_event_loop(void);
+
 // --- menu -------------------------------------------------------------------
 
 typedef uint16_t MenuIndexSection;
@@ -160,8 +174,7 @@ typedef struct MenuLayerCallbacks {
   void (*draw_background)(GContext *ctx, const Layer *back_layer, bool highlighted, void *callback_context);
   int16_t (*get_header_height)(struct MenuLayer *menu_layer, uint16_t section_index, void *callback_context);
   void (*draw_header)(GContext *ctx, const Layer *cell_layer, uint16_t section_index, void *callback_context);
-  bool (*select_click)(struct MenuLayer *menu_layer, MenuIndex *cell_index, void *callback_context); // deprecated form
-  void (*select_click2)(struct MenuLayer *menu_layer, MenuIndex *cell_index, void *callback_context);
+  void (*select_click)(struct MenuLayer *menu_layer, MenuIndex *cell_index, void *callback_context);
   void (*select_long_click)(struct MenuLayer *menu_layer, MenuIndex *cell_index, void *callback_context);
 } MenuLayerCallbacks;
 
@@ -169,14 +182,10 @@ MenuLayer *menu_layer_create(GRect frame);
 void menu_layer_destroy(MenuLayer *menu_layer);
 Layer *menu_layer_get_layer(const MenuLayer *menu_layer);
 void menu_layer_set_callbacks(MenuLayer *menu_layer, void *callback_context, MenuLayerCallbacks callbacks);
-void menu_layer_set_click_config_onto(MenuLayer *menu_layer, struct Window *window);
+void menu_layer_set_click_config_onto_window(MenuLayer *menu_layer, struct Window *window);
 void menu_layer_reload_data(MenuLayer *menu_layer);
 void menu_layer_set_normal_colors(MenuLayer *menu_layer, GColor background, GColor foreground);
 void menu_layer_set_highlight_colors(MenuLayer *menu_layer, GColor background, GColor foreground);
-void menu_cell_basic_draw(GContext *ctx, const Layer *cell_layer, const char *title, const char *subtitle, GIcon icon);
-typedef struct GIcon GIcon;
-
-// Clang blocks are supported by the Pebble SDK toolchain.
-typedef void (^app_timer_handler_t)(void *data);
+void menu_cell_basic_draw(GContext *ctx, const Layer *cell_layer, const char *title, const char *subtitle, GIcon *icon);
 
 #endif // STUB_PEBBLE_H

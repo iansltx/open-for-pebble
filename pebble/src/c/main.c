@@ -1,4 +1,6 @@
 #include <pebble.h>
+#include <stdio.h>
+#include <string.h>
 
 // ---------------------------------------------------------------------------
 // Alta Doors — Pebble Time 2 watch app (platform: emery, SDK 3+/4)
@@ -128,6 +130,9 @@ static void menu_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *ind
 }
 
 static void send_hello(void);
+static void hello_retry_cb(void *data);
+static void result_timeout_cb(void *data);
+static void pop_status_cb(void *data);
 
 static void menu_select(MenuLayer *menu, MenuIndex *index, void *context) {
   if (index->row == (uint16_t)SYNC_ROW_INDEX()) {
@@ -170,15 +175,23 @@ static void menu_select(MenuLayer *menu, MenuIndex *index, void *context) {
   window_stack_push(s_status_window, true);
 
   // Timeout: no response from the phone
-  s_result_timer = app_timer_register(8000, ^(void) {
-    if (s_pending_request_id != 0) {
-      s_pending_request_id = 0;
-      strncpy(s_status_body_buf, "No response.\nIs the bridge app running?", sizeof(s_status_body_buf));
-      text_layer_set_text(s_status_body, s_status_body_buf);
-      vibes_double_pulse();
-      app_timer_register(2500, ^(void) { window_stack_pop(true); }, NULL);
-    }
-  }, NULL);
+  s_result_timer = app_timer_register(8000, result_timeout_cb, NULL);
+}
+
+static void pop_status_cb(void *data) {
+  (void)data;
+  window_stack_pop(true);
+}
+
+static void result_timeout_cb(void *data) {
+  (void)data;
+  if (s_pending_request_id != 0) {
+    s_pending_request_id = 0;
+    strncpy(s_status_body_buf, "No response.\nIs the bridge app running?", sizeof(s_status_body_buf));
+    text_layer_set_text(s_status_body, s_status_body_buf);
+    vibes_double_pulse();
+    app_timer_register(2500, pop_status_cb, NULL);
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -219,8 +232,6 @@ static void status_window_unload(Window *window) {
 // AppMessage
 // --------------------------------------------------------------------------
 
-static bool s_awaiting_end = false;
-
 static void handle_result(uint8_t status, const char *text) {
   if (s_result_timer) {
     app_timer_cancel(s_result_timer);
@@ -250,7 +261,7 @@ static void handle_result(uint8_t status, const char *text) {
     }
     if (s_status_body && s_status_title) {
       text_layer_set_text(s_status_body, s_status_body_buf);
-      app_timer_register(2200, ^(void) { window_stack_pop(true); }, NULL);
+      app_timer_register(2200, pop_status_cb, NULL);
     }
   }
 }
@@ -268,7 +279,6 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   if (t_count) {
     // Start of a fresh list
     s_door_count = 0;
-    s_awaiting_end = true;
     if (s_hello_timer) {
       app_timer_cancel(s_hello_timer);
       s_hello_timer = NULL;
@@ -277,20 +287,19 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   }
   if (t_door_id && t_door_name && t_door_type && s_door_count < MAX_DOORS) {
     Door *d = &s_doors[s_door_count];
-    d->id = t_door_id->value->uint32.uint32;
-    d->type = t_door_type->value->uint8.uint8 == DOOR_TYPE_READER ? DOOR_TYPE_READER : DOOR_TYPE_ENTRY;
+    d->id = t_door_id->value->uint32;
+    d->type = t_door_type->value->uint8 == DOOR_TYPE_READER ? DOOR_TYPE_READER : DOOR_TYPE_ENTRY;
     const char *name = t_door_name->value->cstring;
     strncpy(d->name, name, NAME_LEN);
     d->name[NAME_LEN] = '\0';
     s_door_count++;
   }
   if (t_end) {
-    s_awaiting_end = false;
     save_doors();
     menu_layer_reload_data(s_menu);
   }
   if (t_reqid && t_status) {
-    uint8_t status = t_status->value->uint8.uint8;
+    uint8_t status = t_status->value->uint8;
     handle_result(status, t_text ? t_text->value->cstring : NULL);
   }
 }
@@ -314,6 +323,11 @@ static void outbox_failed(DictionaryIterator *iter, AppMessageResult reason, voi
   }
 }
 
+static void hello_retry_cb(void *data) {
+  (void)data;
+  send_hello();
+}
+
 static void send_hello(void) {
   DictionaryIterator *iter;
   if (app_message_outbox_begin(&iter) == APP_MSG_OK) {
@@ -323,7 +337,7 @@ static void send_hello(void) {
       if (s_hello_timer) app_timer_cancel(s_hello_timer);
       // Retry a few times in case the phone was busy
       if (s_hello_attempts < 5) {
-        s_hello_timer = app_timer_register(4000, ^(void) { send_hello(); }, NULL);
+        s_hello_timer = app_timer_register(4000, hello_retry_cb, NULL);
       }
     }
   }
@@ -344,7 +358,7 @@ static void main_window_load(Window *window) {
     .draw_row = menu_draw_row,
     .select_click = menu_select,
   });
-  menu_layer_set_click_config_onto(s_menu, window);
+  menu_layer_set_click_config_onto_window(s_menu, window);
 #ifdef PBL_COLOR
   menu_layer_set_normal_colors(s_menu, GColorBlack, GColorWhite);
   menu_layer_set_highlight_colors(s_menu, GColorIslamicGreen, GColorWhite);
@@ -372,10 +386,10 @@ static void init(void) {
     .unload = status_window_unload,
   });
 
-  app_message_register_inbox_received(inbox_received, NULL);
-  app_message_register_inbox_dropped(inbox_dropped, NULL);
-  app_message_register_outbox_sent(outbox_sent, NULL);
-  app_message_register_outbox_failed(outbox_failed, NULL);
+  app_message_register_inbox_received(inbox_received);
+  app_message_register_inbox_dropped(inbox_dropped);
+  app_message_register_outbox_sent(outbox_sent);
+  app_message_register_outbox_failed(outbox_failed);
   app_message_open(256, 64);
 
   send_hello();

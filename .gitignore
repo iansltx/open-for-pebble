@@ -1,0 +1,26 @@
+# Inputs / artifacts — large, proprietary, or regenerable
+*.apk
+*.pbw
+decompiled.js
+*.log
+creds.txt
+
+# Reverse-engineering dumps
+jadx-out/
+pebble-jadx/
+apk-raw/
+apktool-out/
+pebble-decoded/
+pebble-apk/
+manifest-only/
+
+# Build outputs
+build/
+.gradle/
+local.properties
+
+# Python / misc
+.venv/
+__pycache__/
+.DS_Store
+.lock-waf*
