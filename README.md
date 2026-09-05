@@ -59,7 +59,7 @@ cloud API.
 
 | Path | What it is |
 |---|---|
-| `pebble/` | Watch app (C, emery — Pebble Time 2). Menu of doors, sends unlock requests, shows results. Builds with the Pebble SDK (`pebble build` → `build/pebble.pbw`). |
+| `pebble/` | Watch app (C, emery — Pebble Time 2). Menu of doors, sends unlock requests, shows results. Touch-enabled: opts into touch navigation (swipe/tap the door list, tap the status card to dismiss it). Builds with the Pebble SDK (`pebble build` → `build/pebble.pbw`). |
 | `companion/` | Android app (Kotlin, **zero third-party dependencies**). Curates doors, speaks the PebbleKit broadcast protocol, triggers Alta Open. Auto-detects the phone-side relay — the current Core Devices app (`coredevices.coreapp`, JSON dialect) or the legacy Pebble app (`com.getpebble.android`, binary dialect) — and speaks the matching wire format both ways. |
 | `docs/alta-open-internals.md` | Reverse-engineering findings from `Avigilon Alta Open.apk`. |
 
@@ -144,6 +144,13 @@ choose the *Sync doors* row).
 3. If the phone can't trigger (missing overlay permission on Android 10+),
    you'll get a tap-to-confirm notification instead.
 
+On a Pebble Time 2 / Core Time 2 you can also use the touchscreen: swipe up or
+down to scroll the door list and tap a door to unlock it, then tap the status
+card to dismiss it. The buttons keep working exactly as before. The app opts
+into touch navigation at startup, so this works once *Touch navigation* is
+enabled in the watch's system settings (Core Devices firmware gates
+touch support for third-party apps on that setting).
+
 ## End-to-end test checklist
 
 Verified live (Sept 2026, Core Devices app + Time 2 + Hyde Park ATX entry):
@@ -157,6 +164,9 @@ Verified live (Sept 2026, Core Devices app + Time 2 + Hyde Park ATX entry):
       other apps".
 - [ ] Out-of-range behavior (this account has no remote-unlock permission, so
       expect Alta's "out of range" refusal rather than a confirmation dialog).
+- [ ] Touch navigation on the Time 2: swipe-scroll + tap-select on the door
+      list, tap-to-dismiss on the status card (with *Touch navigation* enabled
+      in watch settings).
 
 ## Security & privacy notes
 

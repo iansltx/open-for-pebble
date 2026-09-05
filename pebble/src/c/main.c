@@ -10,6 +10,11 @@
 // unlock through the Avigilon Alta Open app (see companion/ for details).
 //
 // AppMessage keys MUST match companion/app/src/main/java/.../pebble/PebbleBridge.kt
+//
+// Touch (Emery / Core Time 2 touchscreen): the app opts into touch navigation
+// (system gesture bridge: swipe/tap on the door list = up/down/select) and the
+// status window is tap-to-dismiss. Touch navigation must also be enabled in
+// the watch's system settings.
 // ---------------------------------------------------------------------------
 
 #define MAX_DOORS 12
@@ -63,6 +68,7 @@ static uint32_t s_next_request_id = 1;
 static uint32_t s_pending_request_id = 0;
 static AppTimer *s_result_timer = NULL;
 static AppTimer *s_hello_timer = NULL;
+static AppTimer *s_pop_timer = NULL;  // delayed auto-dismiss of the status window
 static int s_hello_attempts = 0;
 
 // Persist keys
@@ -180,7 +186,11 @@ static void menu_select(MenuLayer *menu, MenuIndex *index, void *context) {
 
 static void pop_status_cb(void *data) {
   (void)data;
-  window_stack_pop(true);
+  s_pop_timer = NULL;
+  // The window may already be gone (dismissed by tap/back while the timer ran).
+  if (s_status_window && window_stack_contains_window(s_status_window)) {
+    window_stack_pop(true);
+  }
 }
 
 static void result_timeout_cb(void *data) {
@@ -188,15 +198,30 @@ static void result_timeout_cb(void *data) {
   if (s_pending_request_id != 0) {
     s_pending_request_id = 0;
     strncpy(s_status_body_buf, "No response.\nIs the bridge app running?", sizeof(s_status_body_buf));
-    text_layer_set_text(s_status_body, s_status_body_buf);
     vibes_double_pulse();
-    app_timer_register(2500, pop_status_cb, NULL);
+    // Layers are NULL if the window was dismissed while the request was in
+    // flight; the vibration is then the only feedback.
+    if (s_status_body && s_status_title) {
+      text_layer_set_text(s_status_body, s_status_body_buf);
+      s_pop_timer = app_timer_register(2500, pop_status_cb, NULL);
+    }
   }
 }
 
 // --------------------------------------------------------------------------
 // Status window
 // --------------------------------------------------------------------------
+
+// Tap anywhere on the status card to dismiss it (mirrors the back button).
+static void status_tap_recognizer_cb(const Recognizer *recognizer, RecognizerEvent event) {
+  (void)recognizer;
+  if (event != RecognizerEvent_Completed) {
+    return;
+  }
+  if (s_status_window && window_stack_contains_window(s_status_window)) {
+    window_stack_pop(true);
+  }
+}
 
 static void status_window_load(Window *window) {
   Layer *root = window_get_root_layer(window);
@@ -219,9 +244,19 @@ static void status_window_load(Window *window) {
 
   layer_add_child(root, text_layer_get_layer(s_status_title));
   layer_add_child(root, text_layer_get_layer(s_status_body));
+
+  // Take over touch on this window: with the system touch-navigation bridge
+  // disabled, our tap recognizer receives the touch stream (a tap would
+  // otherwise map to a select click, which this window does not handle).
+  window_set_touch_bridge_disabled(window, true);
+  window_attach_recognizer(window, tap_recognizer_create(status_tap_recognizer_cb, NULL));
 }
 
 static void status_window_unload(Window *window) {
+  if (s_pop_timer) {
+    app_timer_cancel(s_pop_timer);
+    s_pop_timer = NULL;
+  }
   text_layer_destroy(s_status_title);
   text_layer_destroy(s_status_body);
   s_status_title = NULL;
@@ -261,7 +296,7 @@ static void handle_result(uint8_t status, const char *text) {
     }
     if (s_status_body && s_status_title) {
       text_layer_set_text(s_status_body, s_status_body_buf);
-      app_timer_register(2200, pop_status_cb, NULL);
+      s_pop_timer = app_timer_register(2200, pop_status_cb, NULL);
     }
   }
 }
@@ -373,6 +408,12 @@ static void main_window_unload(Window *window) {
 static void init(void) {
   load_doors();
 
+  // Opt into touch navigation: the firmware's system gesture bridge maps
+  // swipes/taps on the MenuLayer to up/down/select button presses (and the
+  // MenuLayer scrolls by touch natively). Buttons keep working either way;
+  // takes effect once touch navigation is enabled in the watch's settings.
+  app_touch_navigation_enable(true);
+
   s_window = window_create();
   window_set_window_handlers(s_window, (WindowHandlers) {
     .load = main_window_load,
@@ -398,6 +439,7 @@ static void init(void) {
 static void deinit(void) {
   if (s_result_timer) app_timer_cancel(s_result_timer);
   if (s_hello_timer) app_timer_cancel(s_hello_timer);
+  if (s_pop_timer) app_timer_cancel(s_pop_timer);
   window_destroy(s_status_window);
   window_destroy(s_window);
 }
