@@ -77,11 +77,17 @@ object AltaTrigger {
     /**
      * Fire the unlock intent at the Alta Open app.
      *
+     * @param fromBackground true when called from [BridgeService]/a receiver
+     *   (Android 10+ blocks background activity starts without the overlay
+     *   exemption). Pass false from foreground UI ([UnlockActivity], the
+     *   "Unlock now" test button) where the start is always legal — otherwise
+     *   a tap on the fallback notification would just post another
+     *   notification instead of unlocking.
      * @return STATUS_OK if the intent was sent, STATUS_BLOCKED if background
      *   activity starts are not allowed (a fallback notification was posted),
      *   STATUS_ERROR if the Alta app is missing.
      */
-    fun trigger(context: Context, door: Door, requestId: Long): Int {
+    fun trigger(context: Context, door: Door, requestId: Long, fromBackground: Boolean = true): Int {
         val appContext = context.applicationContext
         if (!isAltaInstalled(appContext)) {
             Log.e(TAG, "Alta Open app is not installed")
@@ -97,7 +103,7 @@ object AltaTrigger {
             .putExtra(EXTRA_SHORTCUT_TYPE, "Unlock")
             .putExtra(EXTRA_SHORTCUT_USER_INFO, userInfo)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !Settings.canDrawOverlays(appContext)) {
+        if (fromBackground && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !Settings.canDrawOverlays(appContext)) {
             Log.w(TAG, "background activity start not permitted; posting fallback notification")
             postFallbackNotification(appContext, door, requestId)
             return STATUS_BLOCKED
@@ -140,7 +146,7 @@ object AltaTrigger {
         }
         val pending = PendingIntent.getActivity(
             context,
-            (door.id * 31 + requestId.toInt() and 0xFFFFFFF),
+            ((door.id * 31 + requestId.toInt()) and 0xFFFFFFF),
             tap,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -164,6 +170,6 @@ object AltaTrigger {
                 .setAutoCancel(true)
                 .build()
         }
-        nm.notify((door.id * 31 + requestId.toInt() and 0xFFFFFFF), notification)
+        nm.notify(((door.id * 31 + requestId.toInt()) and 0xFFFFFFF), notification)
     }
 }

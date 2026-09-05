@@ -24,7 +24,9 @@ class UnlockActivity : Activity() {
 
         val door = if (doorId != Int.MIN_VALUE) Door(doorName, doorId, doorType) else null
         val status = if (door != null) {
-            AltaTrigger.trigger(this, door, requestId)
+            // Foreground activity: the activity start is legal regardless of
+            // the overlay exemption (see AltaTrigger.trigger).
+            AltaTrigger.trigger(this, door, requestId, fromBackground = false)
         } else {
             AltaTrigger.STATUS_ERROR
         }

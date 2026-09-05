@@ -8,10 +8,10 @@ Open Avigilon Alta–controlled doors with your Pebble Time 2.
 │ "Alta Doors" │ (BT via the  │ (Android companion)│ ────────────────►│ Open (first-party│
 │ watch app    │  Pebble app) │                     │                  │ app) unlocks    │
 └──────────────┘               └────────────────────┘                  └──────────────────┘
-                                         │
-                                         ▼ (optional, one-time)
-                             helium.prod.openpath.com — sign in to
-                             discover door names/IDs for curation
+                                        │
+                                        ▼ (optional, one-time)
+                            helium.prod.openpath.com — sign in to
+                            discover door names/IDs for curation
 ```
 
 ## Why a companion app (and why not the Pebble settings hooks)
@@ -59,8 +59,8 @@ cloud API.
 
 | Path | What it is |
 |---|---|
-| `pebble/` | Watch app (C, SDK 3+/emery — Pebble Time 2). Menu of doors, sends unlock requests, shows results. CloudPebble-ready. |
-| `companion/` | Android app (Kotlin, **zero third-party dependencies**). Curates doors, speaks the PebbleKit broadcast protocol, triggers Alta Open. |
+| `pebble/` | Watch app (C, emery — Pebble Time 2). Menu of doors, sends unlock requests, shows results. Builds with the Pebble SDK (`pebble build` → `build/pebble.pbw`). |
+| `companion/` | Android app (Kotlin, **zero third-party dependencies**). Curates doors, speaks the PebbleKit broadcast protocol, triggers Alta Open. Auto-detects the phone-side relay — the current Core Devices app (`coredevices.coreapp`, JSON dialect) or the legacy Pebble app (`com.getpebble.android`, binary dialect) — and speaks the matching wire format both ways. |
 | `docs/alta-open-internals.md` | Reverse-engineering findings from `Avigilon Alta Open.apk`. |
 
 The PebbleKit wire protocol is vendored in
@@ -70,27 +70,50 @@ is a handful of documented broadcasts).
 
 ## Setup
 
-### 1. Watch app (CloudPebble)
+### 1. Watch app (Pebble SDK)
 
-1. Log in to [CloudPebble](https://cloudpebble.net) and create a new project:
-   - Name: `Alta Doors`, **Platform: Emery (Pebble Time 2)**, Type: Pebble app.
-2. Open **Settings** and set the project **UUID** to
-   `2f9a7c41-5e3b-4d88-a6c2-7b1e0d5f4a33` (from `pebble/appinfo.json`).
-   *(If you skip this, use the companion's main screen to set its UUID to
-   whatever CloudPebble generated.)*
-3. Add a source file `main.c` and paste `pebble/src/main.c` into it.
-4. **Run → Build and Install** (or "Build" for the PBW to sideload via the
-   Pebble app).
+The PBW is already built at `pebble/build/pebble.pbw` (or rebuild with the
+[Pebble SDK](https://developer.rebble.io/sdk/) — Core Devices' `pebble-tool`):
 
-A local SDK build works too (`pebble build && pebble install` against the
-`pebble/` directory — it's a standard `appinfo.json` + `src/` layout).
+```sh
+uv tool install pebble-tool --python 3.13
+pebble sdk install latest
+cd pebble && pebble build      # produces build/pebble.pbw
+```
 
-### 2. Companion app (Android Studio)
+Install it on the watch with the phone on the same Wi-Fi (the IP is shown in
+the Pebble phone app's settings):
 
-1. Open `companion/` in Android Studio and let Gradle sync (AGP 8.5, Kotlin
-   1.9; first sync downloads the toolchain).
-2. Run on the phone that is paired to your watch and has **Alta Open
-   installed and signed in**.
+```sh
+pebble install --phone <PHONE_IP> build/pebble.pbw
+```
+
+(The web IDE [CloudPebble](https://cloudpebble.repebble.com/) also works —
+create an Emery project with the UUID above and paste in `src/c/main.c`.)
+
+The watch app UUID is `2f9a7c41-5e3b-4d88-a6c2-7b1e0d5f4a33` (from
+`pebble/package.json`); the companion expects this by default.
+
+### 2. Companion app (Android Studio or command line)
+
+The APK is already built at
+`companion/app/build/outputs/apk/debug/app-debug.apk` (debug-signed,
+installable directly). To rebuild: open `companion/` in Android Studio and let
+Gradle sync (AGP 8.5, Kotlin 1.9), or from the command line with JDK 17:
+
+```sh
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17 ANDROID_HOME=~/Library/Android/sdk
+gradle -p companion assembleDebug
+```
+
+Install on the phone that is paired to your watch and has **Alta Open
+installed and signed in**:
+
+```sh
+adb install companion/app/build/outputs/apk/debug/app-debug.apk
+```
+
+(or copy the APK to the phone and tap it — allow "Install unknown apps".)
 
 ### 3. Configure doors
 
@@ -123,19 +146,17 @@ choose the *Sync doors* row).
 
 ## End-to-end test checklist
 
-The pieces that need live verification (user account + real watch):
+Verified live (Sept 2026, Core Devices app + Time 2 + Hyde Park ATX entry):
 
-- [ ] Companion ↔ Pebble app AppMessage round-trip (HELLO → door list).
-- [ ] Watch unlock request → Alta Open `quickActionShortcut` handling with
+- [x] Companion ↔ phone-app AppMessage round-trip (HELLO → door list).
+- [x] Watch unlock request → Alta Open `quickActionShortcut` handling with
       the phone **screen on**: door unlocks, no confirmation modal (in range).
-- [ ] Same with **screen off/locked** after granting "Display over other apps".
-- [ ] Out-of-range unlock shows Alta's remote-unlock dialog on the phone.
-- [ ] Cloud sign-in: capture the raw `determineLoginCandidateNamespaces`,
-      `login` (and `apiTokens`) shapes from the debug log; fix
-      `OpenCloud.kt` parsing if any field differs.
-- [ ] Cloud discovery: if `discoverDoors` finds no ACUs, inspect the debug log
-      and extend `collectAcuIds` (candidate sources: the credentials list, a
-      `GET /orgs/{orgId}/users/{userId}` response, or the login response).
+- [x] Cloud sign-in + discovery against `helium.prod.openpath.com`
+      (48 entries / 40 ACUs enumerated, no provisioning needed).
+- [ ] Same unlock with **screen off/locked** after granting "Display over
+      other apps".
+- [ ] Out-of-range behavior (this account has no remote-unlock permission, so
+      expect Alta's "out of range" refusal rather than a confirmation dialog).
 
 ## Security & privacy notes
 

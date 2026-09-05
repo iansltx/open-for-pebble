@@ -12,10 +12,17 @@
     <!-- Package visibility (Android 11+): we check for both target apps. -->
     <queries>
         <package android:name="com.getpebble.android" />
+        <package android:name="coredevices.coreapp" />
         <package android:name="com.openpath.mobile" />
+        <!-- Any app that receives PebbleKit SEND broadcasts (e.g. the Core
+             Devices Pebble app) becomes visible for dynamic relay resolution. -->
+        <intent>
+            <action android:name="com.getpebble.action.app.SEND" />
+        </intent>
     </queries>
 
     <application
+        android:name=".BridgeApp"
         android:allowBackup="false"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="@string/app_name"

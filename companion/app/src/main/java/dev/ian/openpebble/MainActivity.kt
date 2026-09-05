@@ -42,7 +42,7 @@ class MainActivity : Activity() {
         doors = DoorStore.load(this)
 
         statusView = findViewById(R.id.status_view)
-        doorList = findViewById(R.id.doors)
+        doorList = findViewById(R.id.door_list)
 
         adapter = DoorAdapter()
         doorList.adapter = adapter
@@ -91,7 +91,8 @@ class MainActivity : Activity() {
 
     private fun refreshStatus() {
         val alta = if (AltaTrigger.isAltaInstalled(this)) "✓ Alta Open installed" else "✗ Alta Open not installed"
-        val pebble = if (PebbleBridge.isPebbleAppInstalled(this)) "✓ Pebble app installed" else "✗ Pebble app not installed"
+        val relay = PebbleBridge.phoneAppPackage(this)
+        val pebble = if (relay != null) "✓ Pebble relay: $relay" else "✗ No Pebble phone app found"
         val overlay = if (AltaTrigger.canTriggerFromBackground(this)) {
             "✓ Can unlock with screen off"
         } else {
@@ -181,7 +182,8 @@ class MainActivity : Activity() {
 
         unlockNow.setOnClickListener {
             val door = parseDoor() ?: return@setOnClickListener
-            val status = AltaTrigger.trigger(this, door, requestId = 0)
+            // Foreground UI: exempt from the background-start gate.
+            val status = AltaTrigger.trigger(this, door, requestId = 0, fromBackground = false)
             val msg = when (status) {
                 AltaTrigger.STATUS_OK -> "Unlock requested ✓"
                 AltaTrigger.STATUS_BLOCKED -> "Blocked from background — notification posted"
@@ -253,7 +255,8 @@ class MainActivity : Activity() {
             try {
                 val namespaces = OpenCloud.determineNamespaces(email)
                 val first = namespaces.optJSONObject(0)
-                val namespaceId = first?.optInt("id")
+                // Tolerant: id may be a number or a numeric string; null = omit.
+                val namespaceId = OpenCloud.optIdAsInt(first)
 
                 val login = OpenCloud.login(email, password, namespaceId, totp)
                 DoorStore.setCloudApiToken(this, login.apiToken)

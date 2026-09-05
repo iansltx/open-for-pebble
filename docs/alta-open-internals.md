@@ -20,35 +20,41 @@ User "opal" identifiers look like `opal:prod:helium:alpha:302:user:15010`.
 
 ## REST endpoints (helium)
 
-Observed in the React Native bundle (`decompiled.js`) and the native SDK:
+Verified live against `helium.prod.openpath.com` (Sept 2026). Auth is the raw
+login JWT in the `Authorization` header (no `Bearer` prefix).
 
 ```
 POST /auth/determineLoginCandidateNamespaces    {"email"}
+     → {"data": [{"id" (namespaceId), "nickname", "namespaceType",
+                  "org": {"id","name",...}, "matchedIdentity": {...}}]}
 POST /auth/login       {"namespaceId", "email", "password", "forMobileLogin": true [, "mfa": {"totpCode"}]}
+     → {"data": {"token": "<jwt>", "tokenScopeList": [
+           {"org": {"id","name","opal",...}, "user": {"id","opal"},
+            "scope": [...]}, ...]}}
+     (org-level scopes carry org+user; identity-level scopes carry neither —
+     use the first scope with both)
+
+GET  /orgs/{orgId}/users/{userId}/entries
+     → {"data": [{"id", "name", "zone": {"id","name",
+                  "site": {"id","name"}}, ...}]}   (door discovery source #1)
+GET  /orgs/{orgId}/users/{userId}/acus
+     → {"data": [{"id","name","opal"}, ...]}       (door discovery source #2)
+GET  /orgs/{orgId}/users/{userId}/acus/{acuId}?options=withShadows
+GET  /orgs/{orgId}/users/{userId}/credentials
+GET  /orgs/{orgId}/users/{userId}                  (hasRemoteUnlock flag lives here)
+```
+
+No provisioning is needed for discovery: the login JWT reads all of the
+above. (The app's `apiTokens` map is a client-side file written during mobile
+provisioning; pulsar's `phoneConfigs`/`entryPermissionTokens` reject the login
+JWT — both irrelevant since unlocking is delegated to the first-party app.)
+
+Other endpoints observed in the bundle / native SDK (not needed here):
+
+```
 POST /auth/resetPassword
 POST /auth/sso/authorize
 POST /auth/setupMobileSaml2
-
-GET  /orgs/{orgId}/users/{userId}/credentials                     (list)
-POST /orgs/{orgId}/users/{userId}/credentials/{credId}/generateSetupMobileToken
-GET  /orgs/{orgId}/users/{userId}/credentials/{credId}/awsCredentials
-POST /orgs/{orgId}/users/{userId}/credentials/{credId}/refreshMobile
-POST /orgs/{orgId}/users/{userId}/credentials/{credId}/syncMobile  (native SDK)
-     ?options=withFullCaChain,withMultiGenCaChain,withNfcData,withUserIotCert
-     body: {httpUserAgent, version, build, os:"Android", mobileId, deviceToken, deviceMobileIds}
-     → data.userCert (AWS IoT cert for MQTT)
-POST /orgs/{orgId}/users/{userId}/credentials/{credId}/unprovisionMobile
-POST /orgs/{orgId}/users/{userId}/credentials/cloudKey/{cloudKeyId}/generateUnlockToken
-
-GET  /orgs/{orgId}/users/{userId}/acus/{acuId}?options=withShadows  (describe ACU:
-     data.acu_config {acuId, org{...}, entries{id→{name}}, readers{...}, …},
-     data.shadow {state.reported.entries…})
-POST /orgs/{orgId}/users/{userId}/opvideoDevices/{id}/users/{userId}/generateUserLiveToken
-POST /orgs/{orgId}/users/{userId}/reports/activity
-GET  /orgs/{orgId}/users/{userId}/badge
-GET  /orgs/{orgId}/users/{userId}/mobileSendFeedbackReasons
-GET  /cloudServerRegions
-POST /identities/{identityId}/termsAgreements/{checkSigned,sign,unsign}
 GET  /applications/{appId}/termsVersions/latest
 ```
 
@@ -89,7 +95,7 @@ reads intent extras on `onNewIntent` (and on cold start via `popInitialAction`):
 | Extra | Type | Notes |
 |---|---|---|
 | `SHORTCUT_ID` | `long` | Dedup — must differ per request |
-| `SHORTCUT_TYPE` | `String` | Not validated by the JS handler |
+| `SHORTCUT_TYPE` | `String` | Read into `ShortcutItem.type` by the native module (the JS unlock path keys off `userInfo.url`) |
 | `SHORTCUT_USER_INFO` | `String` (JSON) | Handler reads `userInfo.url` |
 
 JS (`quickActionShortcut` event, mounted by the `ShortcutItems` component on
